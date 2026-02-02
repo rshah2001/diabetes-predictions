@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+.ipynb_checkpoints/
+
+# Jupyter/outputs
+*.pkl
+*.joblib
+
+# Node (if any)
+node_modules/
+
+# IDEs
+.idea/
+.vscode/
+
+# Data (adjust to your needs)
+*.csv
+*.xlsx
+*.pdf
+EOF
