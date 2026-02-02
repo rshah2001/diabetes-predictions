@@ -1,62 +1,69 @@
-**Current version:** v2.0.0  
+# Diabetes Prediction
 
-# Demand Forecasting Studio
-
-An end-to-end **time series forecasting + decision support** app built with **Streamlit**.  
-Upload a dataset → clean/standardize it into a `ds/y` time series → run **walk-forward backtests** across models → generate a **forward forecast** → translate forecast error into **inventory safety stock + reorder point**.
+An end-to-end **machine learning application** for predicting diabetes risk based on patient health indicators.  
+The app supports **data upload, preprocessing, model training, evaluation, and prediction** through an interactive interface.
 
 ---
 
-## What this app does
+## Project Overview
 
-### ✅ Workflow
-1. **Upload & Prepare (Page 1)**
-   - Choose date column + target column
-   - Converts data into a standardized time series with columns:
-     - `ds` = datetime
-     - `y`  = numeric target (e.g., demand, sales, revenue)
-   - Resamples to your chosen frequency (default: Daily)
+This project applies supervised machine learning to classify whether a patient is likely to have diabetes using clinical and demographic features such as glucose level, BMI, age, and blood pressure.
 
-2. **Insights (Page 2)**
-   - Quick exploratory views (trend + smoothed signal)
-
-3. **Model Compare (Page 3)**
-   - Runs **walk-forward backtesting** to evaluate models realistically (no future leakage)
-   - Shows leaderboard metrics: MAE, RMSE, sMAPE, WAPE
-   - Stores the best model + error stats for downstream pages
-
-4. **Decision Impact (Page 4)**
-   - Converts backtest error (RMSE) into:
-     - **Safety Stock**
-     - **Reorder Point (ROP)**
-   - If a forward forecast exists, uses **forecasted lead-time demand** (sum of next L days)
-
-5. **Forecast (Page 5)**
-   - Trains the selected/best model on the full series
-   - Generates a forward forecast horizon
-   - Optional uncertainty band (RMSE-based)
-   - Cleaner plotting (zoom + rolling mean overlay)
+The goal is to demonstrate:
+- Practical ML preprocessing
+- Model comparison and evaluation
+- Clear separation of data, models, and metrics
+- Reproducible ML workflows
 
 ---
 
-## Models included
-- **Seasonal Naive** (baseline)
-- **ETS / Holt-Winters**
-- **XGBoost (GBDT)** (recommended for speed + scalability)
-- **ML Gradient Boosting** (educational; can be slow for large horizons)
+## Features
 
-> Note: ML Gradient Boosting can be expensive because it may retrain repeatedly across forecast steps, which can freeze laptops on large horizons.
+- Upload and validate structured health datasets
+- Automatic data preprocessing:
+  - Missing value handling
+  - Feature scaling
+- Multiple ML models for comparison
+- Model evaluation using standard classification metrics
+- Prediction on new/unseen data
 
 ---
 
-## How to run
+## Models Used
 
-### 1) Install dependencies
+- Logistic Regression
+- Random Forest
+- Gradient Boosting
+- (Optional) XGBoost
+
+Models are evaluated and compared using:
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- ROC-AUC
+
+---
+
+## Dataset
+
+The app is compatible with datasets structured similarly to the **Pima Indians Diabetes Dataset**, containing features such as:
+
+- Pregnancies
+- Glucose
+- BloodPressure
+- SkinThickness
+- Insulin
+- BMI
+- DiabetesPedigreeFunction
+- Age
+- Outcome (target)
+
+---
+
+## How to Run
+
+### 1) Clone the repository
 ```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
+git clone https://github.com/rshah2001/diabetes-predictions.git
+cd diabetes-predictions
