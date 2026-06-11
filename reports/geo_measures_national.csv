@@ -1,0 +1,6 @@
+measure,county_pct,label
+diabetes_pct,13.2,Diagnosed diabetes (adults)
+obesity_pct,38.2,Obesity (adults)
+physical_inactivity_pct,27.4,No leisure-time physical activity
+high_blood_pressure_pct,37.3,High blood pressure (adults)
+no_insurance_pct,7.6,No health insurance (18-64)

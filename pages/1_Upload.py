@@ -2,14 +2,24 @@ import streamlit as st
 import pandas as pd
 
 from src.preprocess import prepare_classification_data
+from src.bootstrap import load_bundled_dataset
 
-st.title("1) Upload Data (Diabetes Classification)")
+st.title("1) Data (Diabetes Classification)")
 
-uploaded = st.file_uploader("Upload CSV", type=["csv"])
-if uploaded is None:
-    st.stop()
+st.info(
+    "The app comes with the Pima diabetes dataset built in — every page already works "
+    "without uploading anything. Upload a CSV here only if you want to use your own data."
+)
 
-raw = pd.read_csv(uploaded)
+uploaded = st.file_uploader("Upload CSV (optional — overrides the bundled dataset)", type=["csv"])
+if uploaded is not None:
+    raw = pd.read_csv(uploaded)
+    data_source = f"uploaded file: {uploaded.name}"
+else:
+    raw = load_bundled_dataset()
+    data_source = "bundled diabetes.csv"
+
+st.caption(f"Currently previewing: **{data_source}**")
 
 st.subheader("Preview")
 st.dataframe(raw.head(25), use_container_width=True)
@@ -58,6 +68,10 @@ if st.button("Prepare dataset", type="primary"):
         st.stop()
 
     st.session_state["data_pack"] = pack
+    st.session_state["data_source"] = data_source
+    # New dataset invalidates any previously trained session model
+    for key in ("best_model", "best_model_name", "leaderboard", "trained_models"):
+        st.session_state.pop(key, None)
     st.success("Saved! Go to Insights → Model Compare.")
 
     st.subheader("Prepared shapes")

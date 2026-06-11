@@ -12,11 +12,10 @@ st.caption(
     "You can think of it as a 'competition' where each model tries to correctly label patients as diabetic (1) or not (0)."
 )
 
-if "data_pack" not in st.session_state:
-    st.warning("Upload and prepare data first in the Upload page.")
-    st.stop()
+from src.bootstrap import ensure_data_pack, data_source_caption
 
-pack = st.session_state["data_pack"]
+pack = ensure_data_pack()
+data_source_caption()
 X_train = pack["X_train"]
 X_test = pack["X_test"]
 y_train = pack["y_train"]

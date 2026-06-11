@@ -8,10 +8,6 @@ __pycache__/
 env/
 .ipynb_checkpoints/
 
-# Jupyter/outputs
-*.pkl
-*.joblib
-
 # Node (if any)
 node_modules/
 
@@ -19,8 +15,12 @@ node_modules/
 .idea/
 .vscode/
 
-# Data (adjust to your needs)
-*.csv
-*.xlsx
-*.pdf
-EOF
+# Large trained model artifacts (regenerate with `make train`)
+models/*.joblib
+
+# Downloaded data caches (regenerate on first use / `make report`)
+data/nhanes_xpt/
+data/nhanes_2017_2018.csv
+data/cdc_places_county.csv
+
+# Keep tracked: diabetes.csv, reports/ assets (chapter deliverables)

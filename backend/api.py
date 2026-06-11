@@ -1,81 +1,138 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-import sqlite3
+"""FastAPI service that serves the trained diabetes prediction model.
+
+Run from the project root (after `python -m src.train`):
+    uvicorn backend.api:app --reload
+"""
+from contextlib import asynccontextmanager
+from typing import List, Optional
+
 import pandas as pd
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
-from src.models import ets_forecast, seasonal_naive_forecast, ml_forecast
+from src.geo import geo_risk_summary, load_places
+from src.predict import load_artifact, predict_proba
+
+state = {"artifact": None, "places": None}
 
 
-DB_PATH = "data.db"
-TABLE = "demand"
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    state["artifact"] = load_artifact()
+    try:
+        state["places"] = load_places()
+    except Exception:
+        # Geo context is optional; predictions still work without it
+        state["places"] = None
+    yield
 
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {TABLE} (
-            ds TEXT PRIMARY KEY,
-            y REAL NOT NULL
+app = FastAPI(title="Diabetes Prediction API", lifespan=lifespan)
+
+
+class Patient(BaseModel):
+    Pregnancies: float = Field(0, ge=0)
+    Glucose: float = Field(..., ge=0)
+    BloodPressure: float = Field(0, ge=0)
+    SkinThickness: float = Field(0, ge=0)
+    Insulin: float = Field(0, ge=0)
+    BMI: float = Field(..., ge=0)
+    DiabetesPedigreeFunction: float = Field(0.0, ge=0)
+    Age: float = Field(..., ge=1)
+
+
+class Prediction(BaseModel):
+    probability: float
+    prediction: int
+    threshold: float
+    risk_band: str
+    geo_context: Optional[dict] = None
+
+
+def _require_artifact() -> dict:
+    artifact = state["artifact"]
+    if artifact is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not trained yet. Run `python -m src.train` first.",
         )
-        """
+    return artifact
+
+
+def _risk_band(prob: float) -> str:
+    if prob >= 0.70:
+        return "high"
+    if prob >= 0.40:
+        return "moderate"
+    return "low"
+
+
+@app.get("/health")
+def health():
+    artifact = state["artifact"]
+    return {
+        "status": "ok",
+        "model_loaded": artifact is not None,
+        "model_name": artifact["model_name"] if artifact else None,
+        "trained_at": artifact["trained_at"] if artifact else None,
+    }
+
+
+@app.post("/predict", response_model=Prediction)
+def predict_one(
+    patient: Patient,
+    threshold: Optional[float] = None,
+    county_fips: Optional[str] = None,
+):
+    artifact = _require_artifact()
+    t = artifact["threshold"] if threshold is None else threshold
+    df = pd.DataFrame([patient.model_dump()])
+    prob = float(predict_proba(artifact, df)[0])
+
+    geo = None
+    if county_fips is not None:
+        if state["places"] is None:
+            raise HTTPException(status_code=503, detail="Geo data unavailable.")
+        geo = geo_risk_summary(state["places"], county_fips, prob)
+        if geo is None:
+            raise HTTPException(
+                status_code=404, detail=f"Unknown county FIPS '{county_fips}'."
+            )
+
+    return Prediction(
+        probability=prob,
+        prediction=int(prob >= t),
+        threshold=t,
+        risk_band=_risk_band(prob),
+        geo_context=geo,
     )
-    conn.commit()
-    conn.close()
 
 
-def read_series() -> pd.Series:
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query(f"SELECT ds, y FROM {TABLE} ORDER BY ds", conn)
-    conn.close()
-    if df.empty:
-        return pd.Series(dtype=float)
-    df["ds"] = pd.to_datetime(df["ds"])
-    return pd.Series(df["y"].values, index=df["ds"])
+@app.get("/counties")
+def list_counties(state_abbr: Optional[str] = None):
+    if state["places"] is None:
+        raise HTTPException(status_code=503, detail="Geo data unavailable.")
+    df = state["places"]
+    if state_abbr:
+        df = df[df["state"] == state_abbr.upper()]
+    cols = ["county_fips", "county", "state", "diabetes_pct"]
+    return df[cols].to_dict(orient="records")
 
 
-class IngestPoint(BaseModel):
-    ds: str  # ISO datetime string
-    y: float
-
-
-app = FastAPI(title="Demand Forecasting Backend")
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
-
-
-@app.post("/ingest")
-def ingest(point: IngestPoint):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        f"INSERT OR REPLACE INTO {TABLE} (ds, y) VALUES (?, ?)",
-        (point.ds, float(point.y)),
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "ok", "ingested": {"ds": point.ds, "y": point.y}}
-
-
-@app.get("/forecast")
-def forecast(model: str = "ML (Gradient Boosting)", horizon: int = 14, season_length: int = 7):
-    y = read_series()
-    if len(y) < 20:
-        return {"error": "Not enough data yet. Ingest more points."}
-
-    if model == "Seasonal Naive":
-        fc = seasonal_naive_forecast(y, horizon, season_length)
-    elif model == "ETS (Holt-Winters)":
-        fc = ets_forecast(y, horizon, season_length)
-    elif model == "ML (Gradient Boosting)":
-        fc = ml_forecast(y, horizon, season_length)
-    else:
-        return {"error": f"Unknown model '{model}'"}
-
-    future_index = pd.date_range(start=y.index[-1], periods=horizon + 1, freq=pd.infer_freq(y.index) or "D")[1:]
-    out = [{"ds": str(d), "y_pred": float(v)} for d, v in zip(future_index, fc)]
-    return {"model": model, "horizon": horizon, "forecast": out}
+@app.post("/predict_batch")
+def predict_batch(patients: List[Patient], threshold: Optional[float] = None):
+    artifact = _require_artifact()
+    t = artifact["threshold"] if threshold is None else threshold
+    df = pd.DataFrame([p.model_dump() for p in patients])
+    probs = predict_proba(artifact, df)
+    return {
+        "threshold": t,
+        "results": [
+            {
+                "probability": float(p),
+                "prediction": int(p >= t),
+                "risk_band": _risk_band(float(p)),
+            }
+            for p in probs
+        ],
+    }

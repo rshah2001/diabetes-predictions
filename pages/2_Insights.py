@@ -10,11 +10,10 @@ st.caption(
     "and how different measurements relate to each other."
 )
 
-if "data_pack" not in st.session_state:
-    st.warning("Upload and prepare data first in the Upload page.")
-    st.stop()
+from src.bootstrap import ensure_data_pack, data_source_caption
 
-pack = st.session_state["data_pack"]
+pack = ensure_data_pack()
+data_source_caption()
 df_raw: pd.DataFrame = pack["df_raw"].copy()
 target_col: str = pack["target_col"]
 feature_cols = pack["feature_cols"]

@@ -1,0 +1,5 @@
+Configuration,CV ROC-AUC,Std
+Raw features (no cleaning),0.8363053808525506,0.027736043516638106
++ zeros-as-missing imputation,0.843380619613324,0.028830361791399733
++ derived clinical features,0.8437216398788727,0.030710562126886425
+Stacked ensemble (full pipeline),0.8415627766130911,0.03190438594294571

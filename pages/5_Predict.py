@@ -1,25 +1,65 @@
 import streamlit as st
 import pandas as pd
 
+from src.predict import load_artifact, predict_proba
+
 st.title("5) Predict Diabetes Risk")
 
 st.caption(
-    "This page lets you generate diabetes predictions using the best model selected earlier. "
-    "You can either enter one patient manually or upload a CSV to predict multiple patients at once."
+    "This page lets you generate diabetes predictions. You can either enter one patient "
+    "manually or upload a CSV to predict multiple patients at once."
 )
 
-if "best_model" not in st.session_state or "data_pack" not in st.session_state:
-    st.warning("Run Model Compare first so a best model is selected.")
+# Two possible model sources:
+# 1) The pre-trained best-of-class pipeline saved by `python -m src.train`
+# 2) The best model selected interactively on the Model Compare page
+artifact = load_artifact()
+have_session = "best_model" in st.session_state and "data_pack" in st.session_state
+
+if artifact is None and not have_session:
+    st.warning(
+        "No model available yet. Either run Model Compare first, or train the "
+        "best-of-class model with: `python -m src.train`"
+    )
     st.stop()
 
-pack = st.session_state["data_pack"]
-model = st.session_state["best_model"]
-best_name = st.session_state.get("best_model_name", "Best Model")
+options = []
+if artifact is not None:
+    options.append("Pre-trained best-of-class model (recommended)")
+if have_session:
+    options.append("Best model from Model Compare session")
 
-feature_cols = pack["feature_cols"]
-scaler = pack.get("scaler", None)
+source = options[0] if len(options) == 1 else st.radio("Model source", options)
+use_artifact = source.startswith("Pre-trained")
 
-st.subheader(f"Using model: {best_name}")
+if use_artifact:
+    feature_cols = artifact["feature_cols"]
+    feature_medians = artifact["feature_medians"]
+    default_threshold = float(artifact["threshold"])
+    st.subheader(f"Using model: {artifact['model_name']} (calibrated)")
+    tm = artifact["test_metrics"]
+    st.caption(
+        f"Held-out test performance — ROC-AUC: {tm['roc_auc']:.3f}, "
+        f"Recall: {tm['recall']:.3f}, Precision: {tm['precision']:.3f}, F1: {tm['f1']:.3f}"
+    )
+
+    def get_probs(df: pd.DataFrame):
+        return predict_proba(artifact, df)
+
+else:
+    pack = st.session_state["data_pack"]
+    model = st.session_state["best_model"]
+    best_name = st.session_state.get("best_model_name", "Best Model")
+    feature_cols = pack["feature_cols"]
+    feature_medians = pack["feature_medians"]
+    scaler = pack.get("scaler", None)
+    default_threshold = 0.50
+    st.subheader(f"Using model: {best_name}")
+
+    def get_probs(df: pd.DataFrame):
+        X = df[feature_cols]
+        X_scaled = scaler.transform(X) if scaler is not None else X.values
+        return model.predict_proba(X_scaled)[:, 1]
 
 st.caption(
     "The model outputs a probability (risk score) between 0 and 1:\n"
@@ -30,7 +70,7 @@ st.caption(
 # Threshold slider here so prediction matches decision settings
 threshold = st.slider(
     "Decision threshold (predict diabetes if probability ≥ threshold)",
-    0.05, 0.95, 0.50, 0.01
+    0.05, 0.95, default_threshold, 0.01
 )
 st.caption(
     "How to interpret the threshold:\n"
@@ -57,7 +97,7 @@ if mode == "Single patient":
 
     for i, feat in enumerate(feature_cols):
         with cols[i % 2]:
-            default_val = float(pack["feature_medians"].get(feat, 0.0))
+            default_val = float(feature_medians.get(feat, 0.0))
             user_input[feat] = st.number_input(
                 label=f"{feat}",
                 value=default_val
@@ -66,14 +106,13 @@ if mode == "Single patient":
     if st.button("Predict risk", type="primary"):
         x = pd.DataFrame([user_input])
 
-        if scaler is not None:
-            x_scaled = scaler.transform(x)
-        else:
-            x_scaled = x.values
-
         # Probability of class 1 (diabetes)
-        prob = float(model.predict_proba(x_scaled)[0][1])
+        prob = float(get_probs(x)[0])
         pred = int(prob >= threshold)
+        st.session_state["last_prediction"] = {
+            "probability": prob,
+            "features": user_input,
+        }
 
         st.metric("Predicted diabetes probability", f"{prob:.3f}")
         st.write(f"Class prediction @ threshold {threshold:.2f}:", pred)
@@ -90,6 +129,7 @@ if mode == "Single patient":
             "Note: This is a model prediction based on patterns in the dataset. "
             "It is meant for demonstration / screening-style insight, not medical diagnosis."
         )
+        st.info("Next: open **Geo Context** to see this risk in the context of any US county.")
 
 else:
     st.subheader("Batch prediction (CSV)")
@@ -111,14 +151,7 @@ else:
         st.error(f"Missing required feature columns: {missing}")
         st.stop()
 
-    X = df[feature_cols].copy()
-
-    if scaler is not None:
-        X_scaled = scaler.transform(X)
-    else:
-        X_scaled = X.values
-
-    probs = model.predict_proba(X_scaled)[:, 1]
+    probs = get_probs(df)
     preds = (probs >= threshold).astype(int)
 
     out = df.copy()

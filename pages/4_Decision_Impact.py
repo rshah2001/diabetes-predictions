@@ -13,13 +13,11 @@ st.caption(
     "and accidentally flagging some healthy patients."
 )
 
-if "best_model" not in st.session_state or "data_pack" not in st.session_state:
-    st.warning("Run Model Compare first so a best model is selected.")
-    st.stop()
+from src.bootstrap import ensure_data_pack, ensure_best_model, data_source_caption
 
-pack = st.session_state["data_pack"]
-model = st.session_state["best_model"]
-best_name = st.session_state.get("best_model_name", "Best Model")
+pack = ensure_data_pack()
+model, best_name = ensure_best_model(pack)
+data_source_caption()
 
 X_test = pack["X_test"]
 y_test = pack["y_test"]
