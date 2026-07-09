@@ -117,6 +117,10 @@ def main(data_path: Path = DEFAULT_DATA) -> None:
     oof_probs = cross_val_predict(
         calibrated_best(), X_tr, y_tr, cv=inner_cv, method="predict_proba", n_jobs=-1
     )[:, 1]
+    # NOTE: this F1-maximizing threshold lands well below 0.5 (0.28 in the
+    # published artifact) — it is a *screening* threshold that deliberately
+    # favors recall. Risk bands are defined relative to it in
+    # src/predict.py:risk_band(), never as fixed probability cut-offs.
     threshold = tune_threshold(y_tr.values, oof_probs)
     print(f"Tuned decision threshold (max F1 on train OOF): {threshold:.2f}")
 

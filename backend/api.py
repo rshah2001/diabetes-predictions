@@ -10,8 +10,9 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from src.features import PIMA_ZERO_AS_MISSING
 from src.geo import geo_risk_summary, load_places
-from src.predict import load_artifact, predict_proba
+from src.predict import load_artifact, predict_proba, risk_band
 
 state = {"artifact": None, "places": None}
 
@@ -46,6 +47,9 @@ class Prediction(BaseModel):
     prediction: int
     threshold: float
     risk_band: str
+    # Zero-as-missing fields (Glucose, BloodPressure, SkinThickness, Insulin,
+    # BMI) that were sent as 0 and therefore median-imputed by the pipeline.
+    imputed_fields: Optional[List[str]] = None
     geo_context: Optional[dict] = None
 
 
@@ -59,12 +63,9 @@ def _require_artifact() -> dict:
     return artifact
 
 
-def _risk_band(prob: float) -> str:
-    if prob >= 0.70:
-        return "high"
-    if prob >= 0.40:
-        return "moderate"
-    return "low"
+def _imputed_fields(record: dict) -> List[str]:
+    """Zero-as-missing fields that were 0 in the request (imputed downstream)."""
+    return [c for c in PIMA_ZERO_AS_MISSING if record.get(c, 0) == 0]
 
 
 @app.get("/health")
@@ -78,6 +79,20 @@ def health():
     }
 
 
+@app.get("/model")
+def model_info():
+    """Metadata about the loaded model artifact (for clients and reproducibility)."""
+    artifact = _require_artifact()
+    return {
+        "model_name": artifact["model_name"],
+        "threshold": artifact["threshold"],
+        "test_metrics": artifact["test_metrics"],
+        "feature_cols": artifact["feature_cols"],
+        "feature_medians": artifact["feature_medians"],
+        "trained_at": artifact["trained_at"],
+    }
+
+
 @app.post("/predict", response_model=Prediction)
 def predict_one(
     patient: Patient,
@@ -86,7 +101,8 @@ def predict_one(
 ):
     artifact = _require_artifact()
     t = artifact["threshold"] if threshold is None else threshold
-    df = pd.DataFrame([patient.model_dump()])
+    record = patient.model_dump()
+    df = pd.DataFrame([record])
     prob = float(predict_proba(artifact, df)[0])
 
     geo = None
@@ -103,7 +119,8 @@ def predict_one(
         probability=prob,
         prediction=int(prob >= t),
         threshold=t,
-        risk_band=_risk_band(prob),
+        risk_band=risk_band(prob, t),
+        imputed_fields=_imputed_fields(record),
         geo_context=geo,
     )
 
@@ -123,7 +140,8 @@ def list_counties(state_abbr: Optional[str] = None):
 def predict_batch(patients: List[Patient], threshold: Optional[float] = None):
     artifact = _require_artifact()
     t = artifact["threshold"] if threshold is None else threshold
-    df = pd.DataFrame([p.model_dump() for p in patients])
+    records = [p.model_dump() for p in patients]
+    df = pd.DataFrame(records)
     probs = predict_proba(artifact, df)
     return {
         "threshold": t,
@@ -131,8 +149,9 @@ def predict_batch(patients: List[Patient], threshold: Optional[float] = None):
             {
                 "probability": float(p),
                 "prediction": int(p >= t),
-                "risk_band": _risk_band(float(p)),
+                "risk_band": risk_band(float(p), t),
+                "imputed_fields": _imputed_fields(rec),
             }
-            for p in probs
+            for p, rec in zip(probs, records)
         ],
     }
